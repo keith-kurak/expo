@@ -3,6 +3,8 @@ import fs from 'fs-extra';
 import path from 'path';
 
 import { Podspec } from '../../CocoaPods';
+import { EXPOTOOLS_DIR } from '../../Constants';
+import { runPatchAsync } from '../../Patch';
 import { VendoringTargetConfig } from '../types';
 
 const config: VendoringTargetConfig = {
@@ -298,6 +300,26 @@ const config: VendoringTargetConfig = {
               symlinkFrameworkPath
             );
           }
+        },
+      },
+      android: {
+        includeFiles: ['android/**', 'cpp/**'],
+        async postCopyFilesHookAsync(sourceDirectory, targetDirectory) {
+          // copy skia static libraries to common directory
+          const commonLibsDir = path.join(targetDirectory, '..', '..', '..', 'common', 'jniLibs');
+          await fs.ensureDir(commonLibsDir);
+          await fs.copy(path.join(sourceDirectory, 'libs', 'android'), commonLibsDir);
+
+          // patch gradle and cmake files
+          const patchContent = await fs.readFile(
+            path.join(EXPOTOOLS_DIR, 'src', 'vendoring', 'config', 'react-native-skia.patch'),
+            'utf8'
+          );
+          await runPatchAsync({
+            patchContent,
+            cwd: targetDirectory,
+            stripPrefixNum: 0,
+          });
         },
       },
     },
