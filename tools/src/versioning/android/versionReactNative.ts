@@ -2,67 +2,81 @@ import spawnAsync from '@expo/spawn-async';
 import fs from 'fs-extra';
 import path from 'path';
 
-import { transformFileAsync } from '../../Transforms';
+import { copyFileWithTransformsAsync, transformFileAsync } from '../../Transforms';
+import { searchFilesAsync } from '../../Utils';
+import { codegenTransforms, reactNativeTransforms } from './reactNativeTransforms';
 
 export async function updateVersionedReactNativeAsync(
-  reactNativeRoot: string,
-  androidDir: string,
-  versionedReactNativeRoot: string
+  reactNativeSubmoduleRoot: string,
+  androidDirectory: string,
+  sdkVersion: string
 ): Promise<void> {
-  // Clone whole directories
-  const copyDirs = ['ReactAndroid', 'ReactCommon'];
-  await Promise.all(
-    copyDirs.map((subdir) => fs.remove(path.join(versionedReactNativeRoot, subdir)))
-  );
-  await Promise.all(
-    copyDirs.map((subdir) =>
-      fs.copy(path.join(androidDir, subdir), path.join(versionedReactNativeRoot, subdir))
-    )
-  );
-
-  // Run codegen
-  const codegenOutputRoot = path.join(versionedReactNativeRoot, 'codegen');
-  await fs.remove(codegenOutputRoot);
-  await runReactNativeCodegenAndroidAsync(reactNativeRoot, codegenOutputRoot);
-
-  // Patch ReactAndroid/build.gradle for codegen
-  const buildGradlePath = path.join(versionedReactNativeRoot, 'ReactAndroid', 'build.gradle');
-  await transformFileAsync(buildGradlePath, [
-    // Update codegen folder to our customized folder
-    {
-      find: /"REACT_GENERATED_SRC_DIR=.+?",/,
-      replaceWith: `"REACT_GENERATED_SRC_DIR=${versionedReactNativeRoot}",`,
-    },
-    // Add generated java to sourceSets
-    {
-      find: /(\bsrcDirs = \["src\/main\/java",.+)(])/,
-      replaceWith: `$1, "${codegenOutputRoot}/java"$2`,
-    },
-    // Disable codegen plugin
-    {
-      find: /(\bid\("com\.facebook\.react"\)$)/m,
-      replaceWith: '// $1',
-    },
-    {
-      find: /(^react {[^]+?\n\})/m,
-      replaceWith: '/* $1 */',
-    },
-    {
-      find: /(\bpreBuild\.dependsOn\("generateCodegenArtifactsFromSchema"\))/,
-      replaceWith: '// $1',
-    },
+  const abiVersion = `abi${sdkVersion.replace(/\./g, '_')}`;
+  const versionedReactNativeDir = path.join(androidDirectory, 'versioned-react-native');
+  await Promise.all([
+    fs.remove(path.join(versionedReactNativeDir, 'ReactAndroid')),
+    fs.remove(path.join(versionedReactNativeDir, 'ReactCommon')),
+    fs.remove(path.join(versionedReactNativeDir, 'codegen')),
   ]);
+
+  // Run and version codegen
+  const codegenOutputRoot = path.join(versionedReactNativeDir, 'codegen');
+  const tmpCodegenOutputRoot = path.join(versionedReactNativeDir, 'codegen-tmp');
+  try {
+    await runReactNativeCodegenAndroidAsync(reactNativeSubmoduleRoot, tmpCodegenOutputRoot);
+    await versionCodegenDirectoryAsync(tmpCodegenOutputRoot, codegenOutputRoot, abiVersion);
+  } finally {
+    await fs.remove(tmpCodegenOutputRoot);
+  }
+
+  // Copy and version ReactAndroid and ReactCommon
+  await versionReactNativeAsync(androidDirectory, versionedReactNativeDir, abiVersion);
+}
+
+async function versionReactNativeAsync(
+  androidDir: string,
+  versionedReactNativeDir: string,
+  abiVersion: string
+) {
+  const files = await searchFilesAsync(androidDir, ['./ReactAndroid/**', './ReactCommon/**']);
+  const transforms = reactNativeTransforms(versionedReactNativeDir, abiVersion);
+  for (const sourceFile of files) {
+    await copyFileWithTransformsAsync({
+      sourceFile,
+      targetDirectory: versionedReactNativeDir,
+      sourceDirectory: androidDir,
+      transforms,
+    });
+  }
+}
+
+async function versionCodegenDirectoryAsync(
+  tmpCodegenDir: string,
+  codegenDir: string,
+  abiVersion: string
+) {
+  const files = await searchFilesAsync(tmpCodegenDir, ['**']);
+  const transforms = codegenTransforms(abiVersion);
+  for (const sourceFile of files) {
+    await copyFileWithTransformsAsync({
+      sourceFile,
+      targetDirectory: codegenDir,
+      sourceDirectory: tmpCodegenDir,
+      transforms,
+    });
+  }
 }
 
 async function runReactNativeCodegenAndroidAsync(
-  reactNativeRoot: string,
-  codegenOutputRoot: string
+  reactNativeSubmoduleRoot: string,
+  tmpCodegenOutputRoot: string
 ) {
-  await fs.ensureDir(codegenOutputRoot);
+  await fs.remove(tmpCodegenOutputRoot);
+  await fs.ensureDir(tmpCodegenOutputRoot);
 
   // generate schema.json from js & flow types
   const genSchemaScript = path.join(
-    reactNativeRoot,
+    reactNativeSubmoduleRoot,
     'packages',
     'react-native-codegen',
     'lib',
@@ -70,12 +84,12 @@ async function runReactNativeCodegenAndroidAsync(
     'combine',
     'combine-js-to-schema-cli.js'
   );
-  const schemaOutputPath = path.join(codegenOutputRoot, 'schema.json');
-  const jsSourceRoot = path.join(reactNativeRoot, 'Libraries');
+  const schemaOutputPath = path.join(tmpCodegenOutputRoot, 'schema.json');
+  const jsSourceRoot = path.join(reactNativeSubmoduleRoot, 'Libraries');
   await spawnAsync('yarn', ['node', genSchemaScript, schemaOutputPath, jsSourceRoot]);
 
   // generate code from schema.json
-  const genCodeScript = path.join(reactNativeRoot, 'scripts', 'generate-specs-cli.js');
+  const genCodeScript = path.join(reactNativeSubmoduleRoot, 'scripts', 'generate-specs-cli.js');
   await spawnAsync('yarn', [
     'node',
     genCodeScript,
@@ -84,7 +98,7 @@ async function runReactNativeCodegenAndroidAsync(
     '--schemaPath',
     schemaOutputPath,
     '--outputDir',
-    codegenOutputRoot,
+    tmpCodegenOutputRoot,
     '--libraryName',
     'rncore',
     '--javaPackageName',

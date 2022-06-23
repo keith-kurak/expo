@@ -353,18 +353,6 @@ async function renameJniLibsAsync(version: string) {
       [],
       { shell: true }
     );
-
-    // reanimated
-    const oldJNIReanimatedPackage =
-      'versioned\\/host\\/exp\\/exponent\\/modules\\/api\\/reanimated\\/';
-    const newJNIReanimatedPackage = 'host\\/exp\\/exponent\\/modules\\/api\\/reanimated\\/';
-    await spawnAsync(
-      `find ${versionedAbiPath} -type f ` +
-        `\\( -name \*.java -o -name \*.h -o -name \*.cpp -o -name \*.mk \\) -print0 | ` +
-        `xargs -0 ${SED_PREFIX} 's/${oldJNIReanimatedPackage}/abi${abiVersion}\\/${newJNIReanimatedPackage}/g'`,
-      [],
-      { shell: true }
-    );
   }
 
   // Update LOCAL_MODULE, LOCAL_SHARED_LIBRARIES, LOCAL_STATIC_LIBRARIES fields in .mk files
@@ -675,7 +663,7 @@ export async function addVersionAsync(version: string) {
   await updateVersionedReactNativeAsync(
     Directories.getReactNativeSubmoduleDir(),
     ANDROID_DIR,
-    path.join(ANDROID_DIR, 'versioned-react-native')
+    version
   );
   console.log(' ✅  1/12: Finished\n\n');
 
