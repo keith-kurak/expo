@@ -8,9 +8,9 @@ import android.content.Intent
 import android.net.Uri
 import expo.modules.core.errors.ModuleNotFoundException
 import android.os.OperationCanceledException
-import expo.modules.imagepicker.contracts.CameraContract
+import expo.modules.imagepicker.contracts.CameraActivityContract
 import expo.modules.imagepicker.contracts.CameraContractOptions
-import expo.modules.imagepicker.contracts.ImageLibraryContract
+import expo.modules.imagepicker.contracts.ImageLibraryActivityContract
 import expo.modules.imagepicker.contracts.ImageLibraryContractOptions
 import expo.modules.imagepicker.contracts.ImagePickerContractResult
 import expo.modules.interfaces.permissions.Permissions
@@ -58,17 +58,11 @@ class ImagePickerModule : Module() {
     AsyncFunction("launchCameraAsync") Coroutine { options: ImagePickerOptions ->
       ensureTargetActivityIsAvailable(options)
       ensureCameraPermissionsAreGranted()
-
-      val mediaFile = createOutputFile(context.cacheDir, options.mediaTypes.toFileExtension())
-      val uri = mediaFile.toContentUri(context)
-      val contractOptions = options.toCameraContractOptions(uri)
-
-      launchContract({ cameraLauncher.launch(contractOptions, options) }, options)
+      launchContract({ cameraLauncher.launch(options, options) }, options)
     }
 
     AsyncFunction("launchImageLibraryAsync") Coroutine { options: ImagePickerOptions ->
-      val contractOptions = options.toImageLibraryContractOptions()
-      launchContract({ imageLibraryLauncher.launch(contractOptions, options) }, options)
+      launchContract({ imageLibraryLauncher.launch(options, options) }, options)
     }
 
     AsyncFunction("getPendingResultAsync") Coroutine { _: Promise ->
@@ -85,11 +79,11 @@ class ImagePickerModule : Module() {
       coroutineScope.launch {
         withContext(Dispatchers.Main) {
           cameraLauncher = appContext.registerForActivityResult(
-            CameraContract(this@ImagePickerModule),
+            CameraActivityContract(this@ImagePickerModule.context.contentResolver),
             ::handleResultUponActivityDestruction
           )
           imageLibraryLauncher = appContext.registerForActivityResult(
-            ImageLibraryContract(this@ImagePickerModule),
+            ImageLibraryActivityContract(this@ImagePickerModule.context.contentResolver),
             ::handleResultUponActivityDestruction
           )
         }
@@ -106,8 +100,8 @@ class ImagePickerModule : Module() {
 
   private val mediaHandler = MediaHandler(this)
 
-  private lateinit var cameraLauncher: AppContextActivityResultLauncher<CameraContractOptions, ImagePickerContractResult, ImagePickerOptions>
-  private lateinit var imageLibraryLauncher: AppContextActivityResultLauncher<ImageLibraryContractOptions, ImagePickerContractResult, ImagePickerOptions>
+  private lateinit var cameraLauncher: AppContextActivityResultLauncher<ImagePickerOptions, ImagePickerContractResult, ImagePickerOptions>
+  private lateinit var imageLibraryLauncher: AppContextActivityResultLauncher<ImagePickerOptions, ImagePickerContractResult, ImagePickerOptions>
 
   /**
    * Stores result for an operation that has been interrupted by the activity destruction.
@@ -194,7 +188,6 @@ class ImagePickerModule : Module() {
 }
 
 internal enum class PickingSource {
-  CAMERA,
   IMAGE_LIBRARY
 }
 
