@@ -1,10 +1,11 @@
 import escapeRegExp from 'lodash/escapeRegExp';
 
-import { FileTransforms } from '../../Transforms.types';
-import { packagesToKeep, packagesToRename } from './packagesConfig';
-import { deleteLinesBetweenTags } from './utils';
+import { FileTransforms } from '../../../Transforms.types';
+import { packagesToKeep, packagesToRename } from '../packagesConfig';
+import { deleteLinesBetweenTags } from '../utils';
 
 export function expoviewTransforms(abiVersion: string): FileTransforms {
+  const sdkVersion = abiVersion.replace(/abi(\d+)_0_0/, 'sdk$1');
   return {
     path: [
       {
@@ -35,6 +36,11 @@ export function expoviewTransforms(abiVersion: string): FileTransforms {
         paths: './build.gradle',
         find: /.*WHEN_VERSIONING_UNCOMMENT_(TO_HERE|FROM_HERE).*\n/g,
         replaceWith: '',
+      },
+      {
+        paths: './build.gradle',
+        find: `useVendoredModulesForExpoView('unversioned')`,
+        replaceWith: `useVendoredModulesForExpoView('${sdkVersion}')`,
       },
       {
         paths: './src/main/AndroidManifest.xml',

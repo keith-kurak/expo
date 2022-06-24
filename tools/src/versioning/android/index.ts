@@ -13,6 +13,9 @@ import { copyExpoviewAsync } from './copyExpoview';
 import { JniLibNames, getJavaPackagesToRename } from './libraries';
 import { versionCxxExpoModulesAsync } from './versionCxx';
 import { renameHermesEngine, updateVersionedReactNativeAsync } from './versionReactNative';
+import { removeVersionedVendoredModulesAsync } from './versionVendoredModules';
+
+export { versionVendoredModulesAsync } from './versionVendoredModules';
 
 const EXPO_DIR = Directories.getExpoRepositoryRootDir();
 const ANDROID_DIR = Directories.getAndroidDir();
@@ -107,7 +110,13 @@ async function removeFromSettingsGradleAsync(abiName: string, settingsGradlePath
       path.relative(EXPO_DIR, settingsGradlePath)
     )}...`
   );
+  const sdkVersion = abiName.replace(/abi(\d+)_0_0/, 'sdk$1');
   await transformFileAsync(settingsGradlePath, new RegExp(`\\n\\s*"${abiName}",[^\\n]*`, 'g'), '');
+  await transformFileAsync(
+    settingsGradlePath,
+    new RegExp(`\\nuseVendoredModulesForSettingsGradle\\('${sdkVersion}'\\)[^\\n]*`, 'g'),
+    ''
+  );
 }
 
 async function removeFromBuildGradleAsync(abiName: string, buildGradlePath: string) {
@@ -209,6 +218,9 @@ export async function removeVersionAsync(version: string) {
   // Update AndroidManifests
   await removeFromManifestAsync(sdkMajorVersion, appManifestPath);
   await removeFromManifestAsync(sdkMajorVersion, templateManifestPath);
+
+  // Remove vendored modules
+  await removeVersionedVendoredModulesAsync(Number(version));
 
   // Remove SDK version from the list of supported SDKs
   await removeFromSdkVersionsAsync(version, sdkVersionsPath);
